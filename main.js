@@ -58,56 +58,52 @@ function getShiftDuration(startTime, endTime) {
 // Returns: string formatted as h:mm:ss
 // ============================================================
 function getIdleTime(startTime, endTime) {
-    function convertToSeconds(time) {
-
-        time = time.trim();
-
-        let parts = time.split(" ");
-        let clock = parts[0].split(":");
-
-        let hours = Number(clock[0]);
-        let minutes = Number(clock[1]);
-        let seconds = Number(clock[2]);
-
-        let period = parts[1];
-
-        if (period === "pm" && hours !== 12) hours += 12;
-        if (period === "am" && hours === 12) hours = 0;
-
-        return hours * 3600 + minutes * 60 + seconds;
+   // Helper: convert "hh:mm:ss am/pm" to seconds since midnight
+    function toSeconds(t) {
+        const [time, meridian] = t.split(' ');
+        let [h, m, s] = time.split(':').map(Number);
+        if (meridian === 'am') {
+            if (h === 12) h = 0;
+        } else {
+            if (h !== 12) h += 12;
+        }
+        return h * 3600 + m * 60 + s;
     }
 
-    let start = convertToSeconds(startTime);
-    let end = convertToSeconds(endTime);
-
-    // handle overnight shift
-    if (end < start) {
-        end += 24 * 3600;
+    // Helper: format seconds to "h:mm:ss" (hours without leading zero)
+    function formatHMS(sec) {
+        const hours = Math.floor(sec / 3600);
+        const minutes = Math.floor((sec % 3600) / 60);
+        const seconds = sec % 60;
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
 
-    let deliveryStart = 8 * 3600;      // 8 AM
-    let deliveryEnd = 22 * 3600;       // 10 PM
+    const start = toSeconds(startTime);
+    let end = toSeconds(endTime);
+    if (end < start) end += 24 * 3600; // cross midnight
 
-    let idle = 0;
+    const totalShift = end - start;
+    const DELIVERY_START = 8 * 3600;   // 8:00 am
+    const DELIVERY_END   = 22 * 3600;  // 10:00 pm
 
-    // idle before 8 AM
-    if (start < deliveryStart) {
-        idle += Math.max(0, Math.min(end, deliveryStart) - start);
+    let active = 0;
+
+    // ---- Part 1: before midnight (same day as start) ----
+    const firstDayEnd = Math.min(end, 24 * 3600);
+    if (firstDayEnd > start) {
+        active += Math.max(0, Math.min(firstDayEnd, DELIVERY_END) - Math.max(start, DELIVERY_START));
     }
 
-    // idle after 10 PM
-    if (end > deliveryEnd) {
-        idle += Math.max(0, end - Math.max(start, deliveryEnd));
+    // ---- Part 2: after midnight (if shift spans into next day) ----
+    if (end > 24 * 3600) {
+        const secondDayStart = Math.max(start, 24 * 3600);
+        // For the second day, delivery window is shifted by 24 hours
+        active += Math.max(0, Math.min(end, 24 * 3600 + DELIVERY_END) - Math.max(secondDayStart, 24 * 3600 + DELIVERY_START));
     }
 
-    let hours = Math.floor(idle / 3600);
-    let minutes = Math.floor((idle % 3600) / 60);
-    let seconds = idle % 60;
+    const idle = totalShift - active;
+    return formatHMS(idle);
 
-    minutes = String(minutes).padStart(2, "0");
-    seconds = String(seconds).padStart(2, "0");
-
-    return hours + ":" + minutes + ":" + seconds;
 }
 
 // ============================================================
@@ -275,28 +271,33 @@ const fs = require("fs");
 
 function setBonus(textFile, driverID, date, newValue) {
 
-    let data = fs.readFileSync(textFile, "utf8");
+const content = fs.readFileSync(textFile, "utf8");
 
-    let rows = data.trim().split("\n");
+    const lines = content.split("\n").filter(line => line.trim() !== "");
 
-    for (let i = 0; i < rows.length; i++) {
+    let updated = false;
 
-        let cols = rows[i].split(",");
+    const newLines = lines.map(line => {
 
-        let existingID = cols[0].trim();
-        let existingDate = cols[2].trim();
+        const parts = line.split(",");
 
-        if (existingID === driverID && existingDate === date) {
-
-            cols[9] = newValue;
-
-            rows[i] = cols.join(",");
-
-            break;
+        if (
+            parts.length >= 10 &&
+            parts[0].trim() === driverID.trim() &&
+            parts[2].trim() === date.trim()
+        ) {
+            parts[9] = String(newValue);
+            updated = true;
+            return parts.join(",");
         }
+
+        return line;
+    });
+
+    if (updated) {
+        fs.writeFileSync(textFile, newLines.join("\n") + "\n");
     }
 
-    fs.writeFileSync(textFile, rows.join("\n"));
 }
 
 // ============================================================
