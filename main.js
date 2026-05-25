@@ -181,7 +181,6 @@ function metQuota(date, activeTime) {
 // shiftObj: (typeof object) has driverID, driverName, date, startTime, endTime
 // Returns: object with 10 properties or empty object {}
 // ============================================================
-const fs = require("fs");
 
 function addShiftRecord(textFile, shiftObj) {
     let data = fs.readFileSync(textFile, "utf8");
@@ -267,7 +266,6 @@ function addShiftRecord(textFile, shiftObj) {
 // newValue: (typeof boolean)
 // Returns: nothing (void)
 // ============================================================
-const fs = require("fs");
 
 function setBonus(textFile, driverID, date, newValue) {
 
